@@ -10,11 +10,10 @@ This repository contains scripts and outputs for analyzing precipitation and tem
 - **`plot_advanced.py`**: Processes and visualizes precipitation and temperature anomalies from CMIP6 models and ERA5 reanalysis data.
 
 ### Figures
-- **`pr_anomalies_ensemble_time_series_CA.png`**: Time series of precipitation anomalies (mm/day) over Central Asia for historical data and SSP scenarios.
-- **`prensemble_mean_maps_2070-2099_CA.png`**: Spatial distribution of precipitation anomalies (mm/day) for 2070-2099 under different SSP scenarios.
-- **`tas_anomalies_ensemble_time_series_CA.png`**: Time series of temperature anomalies (°C) over Central Asia for historical data and SSP scenarios.
-- **`tasensemble_mean_maps_2070-2099_CA.png`**: Spatial distribution of temperature anomalies (°C) for 2070-2099 under different SSP scenarios.
-
+- ![](pr_anomalies_ensemble_time_series_CA.png)
+- ![](prensemble_mean_maps_2070-2099_CA.png)
+- ![](tas_anomalies_ensemble_time_series_CA.png)
+- ![](tasensemble_mean_maps_2070-2099_CA.png)
 ## Methodology
 
 1. **Data Acquisition**
