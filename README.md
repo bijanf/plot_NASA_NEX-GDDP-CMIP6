@@ -12,8 +12,8 @@ This repository contains scripts and outputs for analyzing precipitation and tem
 ### Figures
 - ![](pr_anomalies_ensemble_time_series_CA.png)
 - ![](prensemble_mean_maps_2070-2099_CA.png)
-- ![](tas_anomalies_ensemble_time_series_CA.png)
-- ![](tasensemble_mean_maps_2070-2099_CA.png)
+- ![](tas_anomalies_ensemble_time_series_DE.png)
+- ![](tasensemble_mean_maps_2070-2099_DE.png)
 ## Methodology
 
 1. **Data Acquisition**
