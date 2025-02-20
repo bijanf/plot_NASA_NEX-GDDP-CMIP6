@@ -11,14 +11,14 @@ import re
 SHOW_ERA5 = True  # Flag to control whether ERA5 is processed and plotted
 INPUT_DIR = "/media/bijan/BIJI/nc-files"  # Directory for global NetCDF files
 OUTPUT_DIR = "./out"  # Directory for preprocessed files
-LAT_RANGE = (35, 57)  # Latitude range for the region of interest
-LON_RANGE = (46, 88)  # Longitude range for the region of interest
+#LAT_RANGE = (35, 57)  # Latitude range for the region of interest
+#LON_RANGE = (46, 88)  # Longitude range for the region of interest
 #LAT_RANGE = (-90, 90)  # Latitude range for the region of interest
 #LON_RANGE = (-180, 180)  # Longitude range for the region of interest
 #LAT_RANGE = (47.0, 55.0)  # Latitude range for Germany
 #LON_RANGE = (5.5, 15.5)   # Longitude range for Germany
-#LAT_RANGE = (35.0, 72.0)  # Latitude range for Europe
-#LON_RANGE = (-25.0, 45.0)  # Longitude range for Europe
+LAT_RANGE = (35.0, 72.0)  # Latitude range for Europe
+LON_RANGE = (-25.0, 45.0)  # Longitude range for Europe
 #LAT_RANGE = (24.0, 49.0)  # Latitude range for the contiguous United States
 #LON_RANGE = (-125.0, -66.5)  # Longitude range for the contiguous United States
 VARIABLE = "tas"  # Variable to process ("pr" for precipitation)
@@ -31,11 +31,13 @@ if VARIABLE == "tas":
 else: 
     ERA5_FILE = "pr_yearmean_ERA5_1940-2024.nc"  # Global NetCDF ERA5 file
 
-OUTPUT_PATH = VARIABLE + "_anomalies_ensemble_time_series_CA.png"
+OUTPUT_PATH = VARIABLE + "_anomalies_ensemble_time_series_DE.png"
 FUTURE_PERIOD_START = 2070
 FUTURE_PERIOD_END = 2099
-MAP_OUTPUT_PATH = VARIABLE + "ensemble_mean_maps_2070-2099_CA.png"
+MAP_OUTPUT_PATH = VARIABLE + "ensemble_mean_maps_2070-2099_DE.png"
 n_years = 1  # Define the number of years for the running mean
+# Flag to process all models instead of only ISIMIP models
+PROCESS_ALL_MODELS = True  # Set to True to process all models
 
 # List of ISIMIP models to include
 isimip_models = [
@@ -96,6 +98,53 @@ def process_era5_with_cdo(input_file, lat_range, lon_range, clim_start, clim_end
         )
 
     return anomalies_mean_file
+BERKELEY_FILE = "./Complete_TAVG_LatLong1_yearmean.nc"  # Adjust if located elsewhere
+
+def process_berkeley_with_cdo(lat_range, lon_range, output_dir):
+    """Process Berkeley Earth dataset using Python (fix CDO variable ID mismatch)."""
+    
+    if not os.path.exists(BERKELEY_FILE):
+        raise FileNotFoundError(f"Berkeley dataset not found at {BERKELEY_FILE}")
+
+    # Step 1: Load Berkeley Dataset
+    ds = xr.open_dataset(BERKELEY_FILE)
+    
+    # Subset region (latitude & longitude)
+    ds = ds.sel(
+        latitude=slice(lat_range[0], lat_range[1]),
+        longitude=slice(lon_range[0], lon_range[1])
+    )
+
+    # Step 2: Extract Variables
+    if "temperature" not in ds or "climatology" not in ds:
+        raise KeyError("Berkeley dataset does not contain 'temperature' or 'climatology' variables!")
+
+    temperature_anomaly = ds["temperature"]  # (time, latitude, longitude)
+    climatology = ds["climatology"]  # (month_number, latitude, longitude)
+
+    # Step 3: Convert Climatology from Monthly to Annual Mean
+    climatology_mean = climatology.mean(dim="month_number")  # Convert to (latitude, longitude)
+
+    # Step 4: Compute Absolute Temperature
+    absolute_temperature = temperature_anomaly + climatology_mean  # (time, latitude, longitude)
+
+    # Step 5: Compute Reference Period Mean (1981-2010)
+    reference_mean = absolute_temperature.sel(time=slice(1981, 2010)).mean(dim="time")
+
+    # Step 6: Compute Berkeley Anomalies Relative to 1981-2010
+    berkeley_anomalies = absolute_temperature - reference_mean
+
+    # Step 7: Compute Spatial Mean (fldmean) **AND Assign Variable Name**
+    berkeley_anomalies_mean = berkeley_anomalies.mean(dim=["latitude", "longitude"])
+    berkeley_anomalies_mean = berkeley_anomalies_mean.rename("temperature_anomaly")  # ✅ FIXED: Assign variable name
+
+    # Step 8: Save to NetCDF
+    berkeley_anomalies_mean_file = os.path.join(output_dir, "berkeley_anomalies_mean.nc")
+    berkeley_anomalies_mean.to_netcdf(berkeley_anomalies_mean_file)
+
+    print(f"✅ Berkeley anomalies computed and saved to {berkeley_anomalies_mean_file}")
+
+    return berkeley_anomalies_mean_file
 
 def preprocess_ssp_models():
     """Preprocess SSP experiments, merging files by model and scenario."""
@@ -109,16 +158,17 @@ def preprocess_ssp_models():
     # Group historical files by model
     for f in os.listdir(INPUT_DIR):
         if VARIABLE in f and "historical" in f:
-            model = f.split("_")[2]  # Assuming model name is the 3rd part of the filename
-            if model in isimip_models:  # Only process models in the ISIMIP list
+            model = f.split("_")[2]  # Extract model name from filename
+            
+            # Apply the filter condition based on the flag
+            if PROCESS_ALL_MODELS or model in isimip_models:
                 if model not in model_files:
                     model_files[model] = []
                 model_files[model].append(os.path.join(INPUT_DIR, f))
 
     # Merge historical files by model and calculate climatology
     for model, files in model_files.items():
-        # Sort files by year
-        files = sorted(files, key=extract_year)  # Updated sorting method
+        files = sorted(files, key=extract_year)
 
         print(f"Processing historical model: {model}, files: {files}")
 
@@ -142,22 +192,23 @@ def preprocess_ssp_models():
             )
         historical_climatology[model] = climatology_file
 
-    # Step 2: Process SSP experiments and associate with historical climatology
+    # Step 2: Process SSP experiments
     for experiment in SSP_EXPERIMENTS:
         print(f"Processing SSP experiment: {experiment}...")
         model_files = {}
 
-        # Group SSP files by model
         for f in os.listdir(INPUT_DIR):
             if VARIABLE in f and experiment in f:
-                model = f.split("_")[2]  # Assuming model name is the 3rd part of the filename
-                if model not in model_files:
-                    model_files[model] = []
-                model_files[model].append(os.path.join(INPUT_DIR, f))
+                model = f.split("_")[2]  # Extract model name
+                
+                # Apply the filter condition based on the flag
+                if PROCESS_ALL_MODELS or model in isimip_models:
+                    if model not in model_files:
+                        model_files[model] = []
+                    model_files[model].append(os.path.join(INPUT_DIR, f))
 
         for model, files in model_files.items():
-            # Sort files by year
-            files = sorted(files, key=extract_year)  # Updated sorting method
+            files = sorted(files, key=extract_year)
 
             print(f"Processing model: {model} for experiment: {experiment}, files: {files}")
 
@@ -179,7 +230,6 @@ def preprocess_ssp_models():
 
             anomalies_file = os.path.join(OUTPUT_DIR, f"{model}_{experiment}_anomalies.nc")
             if not os.path.exists(anomalies_file):
-                # Use the precomputed historical climatology
                 climatology_file = historical_climatology[model]
                 cdo.sub(
                     input=f"{regional_file} {climatology_file}",
@@ -198,36 +248,48 @@ def preprocess_ssp_models():
     return processed_files
 
 def preprocess_all_models_and_era5():
-    """Preprocess SSP experiments and include ERA5 in the combined plots."""
+    """Preprocesses climate models, ERA5, and Berkeley Earth datasets."""
+    
     era5_anomalies_file = None
+    berkeley_absolute_temp_file = None
+
     if SHOW_ERA5:
         era5_anomalies_file = process_era5_with_cdo(
             ERA5_FILE, LAT_RANGE, LON_RANGE, CLIMATOLOGY_START, CLIMATOLOGY_END, OUTPUT_DIR
         )
     
+    print("Processing Berkeley Earth dataset...")
+    berkeley_absolute_temp_file = process_berkeley_with_cdo(LAT_RANGE, LON_RANGE, OUTPUT_DIR)
 
     print("Preprocessing SSP experiments...")
     processed_files = preprocess_ssp_models()
 
-    # Add ERA5 as a pseudo-experiment if not processing precipitation
+    # Add ERA5 and Berkeley Earth to processed datasets
     if era5_anomalies_file:
         processed_files["ERA5"] = era5_anomalies_file
+    
+    if berkeley_absolute_temp_file:
+        processed_files["Berkeley"] = berkeley_absolute_temp_file
 
     return processed_files
 
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 def plot_ensemble_anomalies(processed_files, output_path):
-    """Plot the ensemble mean and spread of anomalies in a single plot with independent logic for time axes."""
-    ensemble_data = {}
+    """Plots ensemble mean anomalies, including Berkeley Earth and ERA5."""
+    
     sns.set(style="whitegrid")
-
-    # Create the main figure
     fig, ax1 = plt.subplots(figsize=(12, 6))
-    #ax2 = ax1.twinx()
 
-    # Determine experiments to plot, including ERA5 if present
-    experiments = list(SSP_EXPERIMENTS)
+    # Determine which experiments to plot
+    experiments = list(SSP_EXPERIMENTS)  # CMIP6 models
     if "ERA5" in processed_files:
         experiments.append("ERA5")
+    if "Berkeley" in processed_files:
+        experiments.append("Berkeley")
 
     for experiment in experiments:
         experiment_files = [file for key, file in processed_files.items() if experiment in key]
@@ -235,63 +297,69 @@ def plot_ensemble_anomalies(processed_files, output_path):
             continue
 
         datasets = []
-        variable_name = (
-            "pr" if experiment == "ERA5" and VARIABLE == "pr" else
-            "var167" if experiment == "ERA5" and VARIABLE == "tas" else
-            VARIABLE
-        )
-
+        
         for file in experiment_files:
+            print(f"\nProcessing file: {file}")  # Debugging file being processed
             ds = xr.open_dataset(file)
-            # Convert units for ERA5 and models if variable is pr
+
+            # Debugging: Print available variables
+            print(f"Available variables in {file}: {list(ds.data_vars.keys())}")
+
+            # Auto-detect the variable name (Handle Berkeley's 'temperature')
+            if "tas" in ds:
+                variable_name = "tas"
+            elif "var167" in ds:
+                variable_name = "var167"  # ERA5 temperature variable
+            elif "temperature_anomaly" in ds:
+                variable_name = "temperature_anomaly"  # Berkeley Earth variable
+            else:
+                print(f"❌ Skipping {file} - No recognized temperature variable found!")
+                continue
+
+            # Adjust precipitation units if needed
             if VARIABLE == "pr":
-                if experiment == "ERA5":
-                    # ERA5: Confirm variable is in kg/m²/s (adjust if necessary)
-                    ds["pr"] = (ds["pr"] * 86400)  #  → mm/day
-                    ds["pr"].attrs["units"] = "mm/day"
-                else:
-                    # SSP models: Already annual means in kg/m²/s
-                    ds["pr"] = ds["pr"] * 86400 # Convert to mm/day
-                    ds["pr"].attrs["units"] = "mm/day"
+                ds[variable_name] *= 86400  # Convert kg/m²/s to mm/day
+                ds[variable_name].attrs["units"] = "mm/day"
 
+            # Normalize time axis
+            if "time" in ds.coords and hasattr(ds["time"], "dt"):
+                ds = ds.assign_coords(time=ds["time"].dt.year)
 
-            # Drop time-bound variables to avoid conflicts
-            for possible_time_var in ["time_bnds", "time_bounds", "time_bound"]:
-                if possible_time_var in ds.variables:
-                    ds = ds.drop_vars(possible_time_var)
+            # Debugging: Print time values before any modifications
+            print(f"Time values in {file}: {ds['time'].values}")
 
-            # Normalize time to integer years
+            # Remove duplicate time values
             if "time" in ds.coords:
-                if hasattr(ds["time"], "dt"):
-                    ds = ds.assign_coords(time=ds["time"].dt.year)
-                else:
-                    ds = ds.assign_coords(time=ds["time"].to_index().year)
+                time_values = pd.Index(ds["time"].values)
+                duplicate_times = time_values[time_values.duplicated()]
+                
+                if not duplicate_times.empty:
+                    print(f"❌ Duplicate time values found in {file}: {duplicate_times.unique()}")
+                    ds = ds.drop_duplicates("time")  # Remove duplicates
+                
+                print(f"✅ Unique time values after dropping duplicates: {ds['time'].values}")
 
-            # Ensure time is an integer and drop duplicates
-            ds["time"] = ds["time"].astype(int)
-            unique_time_mask = ~pd.Index(ds["time"].values).duplicated(keep="first")
-            ds = ds.isel(time=unique_time_mask)
-
-            # Convert units for precipitation
-            if VARIABLE == "pr":
-                ds[variable_name] = ds[variable_name]  # Convert kg/m²/s to mm/day
-                ds[variable_name].attrs['units'] = 'mm/day'
+            ds["time"] = ds["time"].astype(int)  # Ensure time is integer
+            ds = ds.sortby("time")  # Sort time axis
 
             datasets.append(ds)
 
-        # Concatenate datasets for the current experiment
+        if len(datasets) == 0:
+            print(f"⚠️ Skipping {experiment} due to no valid datasets.")
+            continue
+
+        # Concatenate datasets for ensemble
         try:
             data = xr.concat([ds[variable_name] for ds in datasets], dim="model")
         except ValueError as e:
-            print(f"Error concatenating data for {experiment}: {e}")
+            print(f"❌ Skipping {experiment} due to concatenation error: {e}")
             continue
 
-        # Calculate ensemble statistics
+        # Compute ensemble statistics
         ensemble_mean = data.quantile(0.5, dim="model", skipna=True)
         percentile_75 = data.quantile(0.75, dim="model", skipna=True)
         percentile_25 = data.quantile(0.25, dim="model", skipna=True)
 
-        # Convert to DataFrame for plotting
         mean_df = ensemble_mean.to_dataframe(name="anomaly").reset_index()
         mean_df["anomaly_running_mean"] = mean_df["anomaly"].rolling(window=n_years, center=True).mean()
 
@@ -300,74 +368,44 @@ def plot_ensemble_anomalies(processed_files, output_path):
         percentile_75_df["anomaly_running_mean_75"] = percentile_75_df["anomaly_75"].rolling(window=n_years, center=True).mean()
         percentile_25_df["anomaly_running_mean_25"] = percentile_25_df["anomaly_25"].rolling(window=n_years, center=True).mean()
 
-        # Plot mean
+        # Customize Berkeley & ERA5 line styles
         if experiment == "ERA5":
             sns.lineplot(
-                data=mean_df,
-                x="time",
-                y="anomaly_running_mean",
-                label=f"{experiment}",
-                linewidth=2,
-                color="black",  # Solid black line for ERA5
-                linestyle="-",  # Solid line style
-                ax=ax1
+                data=mean_df, x="time", y="anomaly_running_mean",
+                label="ERA5", linewidth=2, color="black", linestyle="-", ax=ax1
+            )
+        elif experiment == "Berkeley":
+            sns.lineplot(
+                data=mean_df, x="time", y="anomaly_running_mean",
+                label="Berkeley Earth", linewidth=2, color="blue", linestyle="-", ax=ax1
             )
         else:
             sns.lineplot(
-                data=mean_df,
-                x="time",
-                y="anomaly_running_mean",
-                label=f"{experiment}",
-                linewidth=2,
-                ax=ax1
+                data=mean_df, x="time", y="anomaly_running_mean",
+                label=experiment, linewidth=2, ax=ax1
             )
 
-        # Calculate the spread (75th - 25th percentile)
-        spread_df = percentile_75 - percentile_25
-        spread_df = spread_df.to_dataframe(name="anomaly_spread").reset_index()
-        
         # Add spread to the plot
         ax1.fill_between(
             mean_df["time"],
             percentile_25_df["anomaly_running_mean_25"],
             percentile_75_df["anomaly_running_mean_75"],
-            alpha=0.2,
-            label=None
+            alpha=0.2
         )
-    # ========== Add These Lines ========== #
-    # Customize the right y-axis to make ticks lighter
-    #ax2.spines["right"].set_color("lightgray")  # Lighten the spine (axis line)
-    #ax2.tick_params(
-    #    axis="y",          # Target the y-axis
-    #    which="both",      # Affect both major and minor ticks
-    #    colors="lightgray",# Color of the ticks
-    #    labelcolor="gray"  # Color of the tick labels
-    #)
-    # ===================================== #
-    # Add titles and labels
-    ax1.set_xlabel("Year", fontsize=18)
-    ax1.set_ylabel("Precipitation Anomaly (mm/day)" if VARIABLE == "pr" else "Temperature Anomaly (°C)", fontsize=18)
-    ll = ax1.legend(loc="upper left", title="", frameon=False, fontsize=18)
-    ll.set_zorder(5)
-    ax1.grid(False)  # This removes grid lines from the plot
 
-    # Mirror the y-axis on the right side
-    #ax2.set_ylabel("Precipitation Anomaly (mm/day)" if VARIABLE == "pr" else "Temperature Anomaly (°C)", fontsize=12)
-    #ax2.set_ylim(ax1.get_ylim())  # Ensure the y-axis limits are the same as ax1
-    #ax2.grid(False)  # This removes grid lines from the plot
-    # Remove upper and right spines
+    ax1.set_xlabel("Year", fontsize=18)
+    ax1.set_ylabel("Temperature (°C)", fontsize=18)
+    ax1.legend(loc="upper left", frameon=False, fontsize=18)
     sns.despine()
-    ax1.set_ylim(-0.3, 0.5)
-    # Add xticks and yticks
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.tight_layout()
-
-    # Save the combined plot
     plt.savefig(output_path, dpi=300)
     plt.show()
 
     print("All experiments plotted together.")
+
+
 
 def compute_ensemble_maps():
     """Compute ensemble mean maps for SSPs (2070-2099) relative to climatology."""
@@ -510,7 +548,7 @@ def plot_ensemble_maps(ensemble_maps, output_path):
         ax.add_feature(cfeature.BORDERS, linestyle="-")
 
         # Add country labels for selected countries only
-        add_selected_country_labels(ax)
+        #add_selected_country_labels(ax)
 
         ax.set_title(f"{experiment.upper()} (2070-2099)", fontsize=12)
         axes.append(ax)
