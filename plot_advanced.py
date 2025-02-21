@@ -17,10 +17,13 @@ OUTPUT_DIR = "./out"  # Directory for preprocessed files
 #LON_RANGE = (-180, 180)  # Longitude range for the region of interest
 #LAT_RANGE = (47.0, 55.0)  # Latitude range for Germany
 #LON_RANGE = (5.5, 15.5)   # Longitude range for Germany
-LAT_RANGE = (35.0, 72.0)  # Latitude range for Europe
-LON_RANGE = (-25.0, 45.0)  # Longitude range for Europe
+#LAT_RANGE = (35.0, 72.0)  # Latitude range for Europe
+#LON_RANGE = (-25.0, 45.0)  # Longitude range for Europe
 #LAT_RANGE = (24.0, 49.0)  # Latitude range for the contiguous United States
 #LON_RANGE = (-125.0, -66.5)  # Longitude range for the contiguous United States
+LAT_RANGE = (0, 90.0)  # Latitude range for the Global North
+LON_RANGE = (-180.0, 180)  # Longitude range for Global North
+
 VARIABLE = "tas"  # Variable to process ("pr" for precipitation)
 SSP_EXPERIMENTS = ["historical", "ssp126", "ssp245", "ssp370", "ssp585"]
 CLIMATOLOGY_START = 1981
