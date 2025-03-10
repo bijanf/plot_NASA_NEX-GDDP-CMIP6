@@ -30,9 +30,9 @@ CLIMATOLOGY_START = 1981
 CLIMATOLOGY_END = 2010
 
 if VARIABLE == "tas":
-    ERA5_FILE = "era_1950_2014_ym.nc"  # Global NetCDF ERA5 file
+    ERA5_FILE = INPUT_DIR+"/era_1950_2014_ym.nc"  # Global NetCDF ERA5 file
 else: 
-    ERA5_FILE = "pr_yearmean_ERA5_1940-2024.nc"  # Global NetCDF ERA5 file
+    ERA5_FILE = INPUT_DIR+"/pr_yearmean_ERA5_1940-2024.nc"  # Global NetCDF ERA5 file
 
 OUTPUT_PATH = VARIABLE + "_anomalies_ensemble_time_series_DE.png"
 FUTURE_PERIOD_START = 2070
@@ -101,17 +101,18 @@ def process_era5_with_cdo(input_file, lat_range, lon_range, clim_start, clim_end
         )
 
     return anomalies_mean_file
-BERKELEY_FILE = "./Complete_TAVG_LatLong1_yearmean.nc"  # Adjust if located elsewhere
+
+BERKELEY_FILE = INPUT_DIR + "/Complete_TAVG_LatLong1_yearmean.nc"  # Adjust if located elsewhere
 
 def process_berkeley_with_cdo(lat_range, lon_range, output_dir):
     """Process Berkeley Earth dataset using Python (fix CDO variable ID mismatch)."""
     
     if not os.path.exists(BERKELEY_FILE):
         raise FileNotFoundError(f"Berkeley dataset not found at {BERKELEY_FILE}")
-
+    print(BERKELEY_FILE)
     # Step 1: Load Berkeley Dataset
-    ds = xr.open_dataset(BERKELEY_FILE)
-    
+    ds = xr.open_dataset(BERKELEY_FILE,engine="h5netcdf")
+    print(ds)
     # Subset region (latitude & longitude)
     ds = ds.sel(
         latitude=slice(lat_range[0], lat_range[1]),
@@ -143,6 +144,7 @@ def process_berkeley_with_cdo(lat_range, lon_range, output_dir):
 
     # Step 8: Save to NetCDF
     berkeley_anomalies_mean_file = os.path.join(output_dir, "berkeley_anomalies_mean.nc")
+    print(berkeley_anomalies_mean_file,"---------------------")
     berkeley_anomalies_mean.to_netcdf(berkeley_anomalies_mean_file)
 
     print(f"✅ Berkeley anomalies computed and saved to {berkeley_anomalies_mean_file}")
@@ -303,7 +305,11 @@ def plot_ensemble_anomalies(processed_files, output_path):
         
         for file in experiment_files:
             print(f"\nProcessing file: {file}")  # Debugging file being processed
-            ds = xr.open_dataset(file)
+            file_path_lower = file.lower()
+            if "era5" in file_path_lower:
+                ds = xr.open_dataset(file, engine="netcdf4")
+            else:
+                ds = xr.open_dataset(file, engine="h5netcdf")
 
             # Debugging: Print available variables
             print(f"Available variables in {file}: {list(ds.data_vars.keys())}")
@@ -419,7 +425,7 @@ def compute_ensemble_maps():
     for model in isimip_models:
         climatology_file = os.path.join(OUTPUT_DIR, f"{model}_historical_climatology.nc")
         if os.path.exists(climatology_file):
-            historical_climatology[model] = xr.open_dataset(climatology_file)[VARIABLE]
+            historical_climatology[model] = xr.open_dataset(climatology_file,engine="h5netcdf")[VARIABLE]
 
     # Process each SSP scenario
     for experiment in ["ssp126", "ssp245", "ssp370", "ssp585"]:
@@ -432,7 +438,7 @@ def compute_ensemble_maps():
                 print(f"Skipping {model}_{experiment}: Regional file not found.")
                 continue
             
-            ds_future = xr.open_dataset(regional_file)
+            ds_future = xr.open_dataset(regional_file,engine="h5netcdf")
             if "time" not in ds_future.coords:
                 print(f"Skipping {model}_{experiment}: Time coordinate missing.")
                 continue
